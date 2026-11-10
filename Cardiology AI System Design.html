@@ -1,0 +1,280 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Cardiology AI System Design</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Concept: ECG paper ground. Two result packets (ECG, echo) travel down to the fusion engine, then a purple packet carries the combined answer to the rule engine, the clinician and the audit log. */
+:root {
+  --bg: #FEF5F4; --surface: #FFFFFF; --fg: #1A2233; --muted: #4B5568; --line: #E4CBC9;
+  --grid-minor: rgba(200, 60, 70, 0.07); --grid-major: rgba(200, 60, 70, 0.15);
+  --ecg: #1F57C7; --ecg-tint: #E8F0FD; --echo: #0A7466; --echo-tint: #E2F5F1;
+  --fusion: #6B3BBE; --fusion-tint: #EFE8FB; --gov: #9A5B00; --gov-tint: #FFF1D9;
+  --slate: #3F4B5F; --slate-tint: #EAEEF4; --flag: #C2410C;
+  --on-accent: #FFFFFF; --trace: #D13B4A; --shadow: 0 6px 18px rgba(26, 34, 51, 0.10);
+  --display: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B151F; --surface: #12212F; --fg: #E7EEF6; --muted: #A8B5C6; --line: #27384A;
+    --grid-minor: rgba(90, 200, 190, 0.05); --grid-major: rgba(90, 200, 190, 0.11);
+    --ecg: #7FAEFF; --ecg-tint: rgba(127, 174, 255, 0.14); --echo: #45D6BD; --echo-tint: rgba(69, 214, 189, 0.13);
+    --fusion: #BC9BFF; --fusion-tint: rgba(188, 155, 255, 0.14); --gov: #F2B552; --gov-tint: rgba(242, 181, 82, 0.13);
+    --slate: #9FB0C6; --slate-tint: rgba(159, 176, 198, 0.12); --flag: #FB923C;
+    --on-accent: #0B151F; --trace: #FF6B7A; --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B151F; --surface: #12212F; --fg: #E7EEF6; --muted: #A8B5C6; --line: #27384A;
+  --grid-minor: rgba(90, 200, 190, 0.05); --grid-major: rgba(90, 200, 190, 0.11);
+  --ecg: #7FAEFF; --ecg-tint: rgba(127, 174, 255, 0.14); --echo: #45D6BD; --echo-tint: rgba(69, 214, 189, 0.13);
+  --fusion: #BC9BFF; --fusion-tint: rgba(188, 155, 255, 0.14); --gov: #F2B552; --gov-tint: rgba(242, 181, 82, 0.13);
+  --slate: #9FB0C6; --slate-tint: rgba(159, 176, 198, 0.12); --flag: #FB923C;
+  --on-accent: #0B151F; --trace: #FF6B7A; --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background-color: var(--bg); color: var(--fg); font: 400 15px/1.55 var(--body);
+  background-image:
+    linear-gradient(var(--grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid-minor) 1px, transparent 1px), linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+  background-size: 60px 60px, 60px 60px, 12px 12px, 12px 12px;
+}
+.page { max-width: 1312px; margin: 0 auto; padding-block: 20px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ecg); outline-offset: 3px; }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { width: 46px; height: 46px; color: var(--fg); display: block; }
+.logo svg { width: 100%; height: 100%; overflow: visible; }
+.logo .heart { fill: none; stroke: var(--trace); stroke-width: 3; stroke-linejoin: round; transform-box: fill-box; transform-origin: center; animation: beat 2.4s ease-in-out infinite; }
+.logo .pulse { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; animation: pulse 2.4s linear infinite; }
+.word { display: flex; flex-direction: column; line-height: 1.15; }
+.word b { font: 700 20px/1.1 var(--display); letter-spacing: -0.01em; }
+.word small { font-size: 12.5px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.chips li { font: 500 12px/1 var(--mono); padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.intro { padding-top: 34px; }
+h1 { font: 700 clamp(32px, 5.2vw, 56px)/1.04 var(--display); letter-spacing: -0.025em; margin: 0 0 14px; text-wrap: balance; }
+.lead { max-width: 64ch; margin: 0; font-size: 17px; color: var(--muted); }
+h2 { font: 700 24px/1.2 var(--display); letter-spacing: -0.01em; margin: 0; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 30px 0 14px; }
+.ctrls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 7px 16px; border-radius: 999px; font-weight: 500; font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.play { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 500; }
+
+.wrap { width: 100%; overflow: hidden; }
+.dia { position: relative; top: 14px; width: 1240px; height: 1102px; transform-origin: 0 0; }
+.under { position: absolute; inset: 0; width: 1240px; height: 1102px; overflow: visible; z-index: 0; }
+.ln { fill: none; stroke: var(--slate); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; animation: draw 0.9s var(--d, 0.4s) ease-out backwards; opacity: 0.8; }
+.ln.dash { stroke-dasharray: 6 6; animation: fade 0.9s var(--d, 0.4s) ease-out backwards; opacity: 0.6; }
+.ln.ecg { stroke: var(--ecg); } .ln.echo { stroke: var(--echo); } .ln.fus { stroke: var(--fusion); }
+.nd { position: absolute; z-index: 2; background: var(--surface); border: 1.6px solid var(--c); border-radius: 14px; box-shadow: var(--shadow); padding: 10px 14px; text-align: left; transition: transform 0.25s, opacity 0.35s, box-shadow 0.3s; animation: pop 0.6s var(--d, 0.2s) cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
+button.nd:hover { transform: translateY(-3px); }
+.nd[aria-pressed="true"] { outline: 3px solid var(--fg); outline-offset: 3px; }
+.nd .hd { display: flex; gap: 10px; align-items: center; }
+.nd .ico { color: var(--c); width: 24px; height: 24px; }
+.nd b { font: 700 16px/1.2 var(--display); display: block; }
+.nd small { display: block; font-size: 12.5px; line-height: 1.35; color: var(--muted); margin-top: 3px; }
+.num { position: absolute; top: -12px; left: 10px; width: 28px; height: 28px; border-radius: 50%; background: var(--c); color: var(--on-accent); font: 700 14px/28px var(--display); text-align: center; box-shadow: var(--shadow); }
+.panel { background: var(--surface); }
+.panel::before { content: ""; position: absolute; inset: 0; border-radius: 12px; background: var(--tint); z-index: -1; }
+.mini { z-index: 3; position: absolute; width: 300px; height: 72px; background: var(--surface); border: 1px solid var(--c); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.3; display: flex; flex-direction: column; justify-content: center; animation: pop 0.6s var(--d, 0.4s) cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; transition: opacity 0.35s; pointer-events: none; }
+.mini b { font: 500 13.5px/1.25 var(--display); }
+.mini span { color: var(--muted); font-size: 12px; }
+.card { position: absolute; z-index: 2; width: 210px; background: var(--surface); border: 1.5px dashed var(--c); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.35; animation: pop 0.6s var(--d, 0.3s) cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
+.card b { display: block; font: 700 14px/1.2 var(--display); margin-bottom: 3px; }
+.card .tag { font: 500 11px/1 var(--mono); color: var(--c); }
+.gov { left: 0; top: 992px; width: 1240px; height: 110px; display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: center; background: var(--gov-tint); }
+.gov ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.gov li { font-size: 12.5px; padding: 6px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--c); }
+.flag { display: none; position: absolute; right: 10px; top: -13px; align-items: center; gap: 6px; font: 500 11.5px/1 var(--mono); padding: 6px 10px; border-radius: 999px; background: var(--flag); color: var(--on-accent); }
+.dia[data-sc="disagree"] .flag { display: inline-flex; }
+.dia[data-sc="ecg"] .echoSide { opacity: 0.22; }
+.dia[data-sc="ecg"] .only { display: inline-flex; }
+.only { display: none; position: absolute; right: 10px; top: -13px; font: 500 11.5px/1 var(--mono); padding: 6px 10px; border-radius: 999px; background: var(--slate); color: var(--on-accent); }
+.pk { position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; z-index: 1; offset-rotate: 0deg; opacity: 0; box-shadow: 0 0 12px currentColor; background: currentColor; }
+.pk.e { color: var(--ecg); } .pk.o { color: var(--echo); } .pk.f { color: var(--fusion); }
+.glow { animation: glow 9s ease-in-out var(--g) infinite, pop 0.6s var(--d, 0.2s) cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
+.paused .glow, .paused .logo .heart, .paused .logo .pulse { animation-play-state: paused; }
+.res { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 12px; }
+.res > div { background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.res small { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.res b { display: block; margin-top: 6px; font: 700 17px/1.25 var(--display); }
+.note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.det { margin-top: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; display: grid; gap: 10px; max-width: 860px; }
+.det h3 { margin: 0; font: 700 21px/1.2 var(--display); }
+.det p { margin: 0; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta span { font: 500 12px/1 var(--mono); padding: 6px 10px; border-radius: 999px; background: var(--slate-tint); }
+
+#list { display: grid; gap: 12px; max-width: 860px; }
+#list[hidden] { display: none; }
+.step { background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 14px; padding: 14px 16px; display: grid; grid-template-columns: 36px 1fr; gap: 12px; min-width: 0; }
+.step .num { position: static; width: 32px; height: 32px; line-height: 32px; }
+.step h3 { margin: 0; font: 700 17px/1.25 var(--display); }
+.step p { margin: 4px 0 8px; font-size: 14px; color: var(--muted); }
+.out { margin-top: 44px; }
+.out ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; }
+.out li { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+.out li b { font: 500 12px/1 var(--mono); color: var(--muted); margin-right: 6px; }
+.foot { margin-top: 36px; font-size: 13px; color: var(--muted); max-width: 70ch; }
+@keyframes pop { from { opacity: 0; transform: scale(0.85) translateY(8px); } }
+@keyframes draw { from { stroke-dashoffset: 1; } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes glow { 0%, 100% { box-shadow: var(--shadow); } 6%, 14% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--c) 35%, transparent), 0 0 28px color-mix(in srgb, var(--c) 55%, transparent); } 24% { box-shadow: var(--shadow); } }
+@keyframes beat { 0%, 100% { transform: scale(1); } 14% { transform: scale(1.12); } 28% { transform: scale(1); } 42% { transform: scale(1.07); } 56% { transform: scale(1); } }
+@keyframes pulse { 0% { stroke-dashoffset: 1; opacity: 1; } 55% { stroke-dashoffset: 0; opacity: 1; } 90% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .pk { display: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-web" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-ecg" viewBox="0 0 24 24"><path d="M2 12h5l2-6 4 12 2-6h7"/></symbol>
+    <symbol id="i-echo" viewBox="0 0 24 24"><path d="M12 4 3.5 18a10 10 0 0 0 17 0z"/><path d="M7.5 15a6 6 0 0 0 9 0"/></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 5l7 7M20 5l-7 7M12 12v8"/><path d="m9 17 3 3 3-3"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 10v10"/></symbol>
+    <symbol id="i-review" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-6"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
+  </defs>
+</svg>
+
+<main class="page" id="page">
+  <header class="top">
+    <div class="brand">
+      <span class="logo" data-logo role="img" aria-label="Cardiology AI logo, a heart with a heartbeat line"></span>
+      <span class="word"><b>Cardiology AI</b><small>System design</small></span>
+    </div>
+  </header>
+  <div class="wrap" id="wrap"><div class="dia" id="dia" data-sc="agree"></div></div>
+</main>
+
+<script>
+(function () {
+  var LOGO = '<svg viewBox="0 0 48 48" aria-hidden="true"><path class="heart" d="M24 42C10 32 5 25 5 17.5A9.5 9.5 0 0 1 24 13a9.5 9.5 0 0 1 19 4.5C43 25 38 32 24 42Z"/><path class="pulse" pathLength="1" d="M2 25h12l4-9 6 17 4-11 3 3h15"/></svg>';
+  document.querySelectorAll('[data-logo]').forEach(function (el) { el.innerHTML = LOGO; });
+  function ico(n) { return '<svg class="ico" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; }
+
+  var C = [
+    { n: 1, id: 'web', t: 'Web app', s: 'Upload and view results', i: 'web', col: 'slate', x: 430, y: 0, w: 380, h: 84, req: 'M6', own: 'Alaedine', d: 'The single screen where a clinician uploads an ECG, an echo study or both, and later sees the result.' },
+    { n: 2, id: 'chk', t: 'Input checks and approved storage', s: 'Type, quality, safe storage only', i: 'check', col: 'gov', x: 410, y: 124, w: 420, h: 96, req: 'M7', own: 'Pana', d: 'Files are checked for type and quality and kept only in approved storage. No real patient data is used before written approval.' },
+    { n: 3, id: 'ecg', t: 'ECG pathway', s: '', i: 'ecg', col: 'ecg', x: 250, y: 278, w: 340, h: 324, req: 'M1 M4 M5', own: 'Reyad', d: 'ECG signals are cleaned and read by a model. Baseline, 1D CNN and ResNet are compared on PTB-XL with patient-level splits.' },
+    { n: 4, id: 'eco', t: 'Echo pathway', s: '', i: 'echo', col: 'echo', x: 650, y: 278, w: 340, h: 324, req: 'M2 M5', own: 'Alaedine', d: 'Echo clips are checked and read by a transfer-learning model built on EchoNet-Dynamic, tested with the same protocol.' },
+    { n: 5, id: 'fus', t: 'Fusion engine', s: 'Late fusion of the two findings', i: 'merge', col: 'fusion', x: 330, y: 682, w: 580, h: 100, req: 'M3 S3', own: 'Alaedine', d: 'Each test gives its own finding. The more urgent action wins, disagreement is flagged for clinician review and never averaged away. If only one test exists, the app answers from it and says so. The rule is signed off by Dr Alaa.' },
+    { n: 6, id: 'rul', t: 'Rule engine', s: 'Fixed action table', i: 'table', col: 'fusion', x: 290, y: 842, w: 300, h: 90, req: 'M6', own: 'Alaedine', d: 'A fixed table turns the combined finding into a suggested action. The table is owned by Dr Alaa, not learned by a model.' },
+    { n: 7, id: 'rev', t: 'Clinical review screen', s: 'Clinician confirms every result', i: 'review', col: 'slate', x: 650, y: 842, w: 300, h: 90, req: 'M6 M7', own: 'Alaedine and Pana', d: 'The clinician sees both findings, the combined answer and any flag, and confirms or overrides it. Nothing is used without that confirmation.' },
+    { n: 8, id: 'aud', t: 'Audit log', s: 'Model version, file and time, plus the combined answer', i: 'log', col: 'slate', x: 1030, y: 682, w: 210, h: 250, req: 'M6', own: 'Alaedine', d: 'Every run is recorded with the model version, the file, the time and the combined answer, so any result can be traced later.' },
+    { n: 9, id: 'evl', t: 'Evaluation and calibration', s: '20 sample cases with Dr Alaa', i: 'gauge', col: 'gov', x: 0, y: 842, w: 210, h: 90, req: 'S1 S2', own: 'Pana', d: 'Calibration error and reliability plots, then 20 sample cases reviewed with Dr Alaa. The target is at least 18 of 20 in agreement.' },
+    { n: 10, id: 'gvn', t: 'Governance', s: '', i: 'lock', col: 'gov', x: 0, y: 992, w: 1240, h: 110, req: 'M5 M7', own: 'Pana', d: 'NDA in place, no real patient data before written approval, approved storage only, clinician confirms every result, patient-level splits, GDPR and ethics, and a FAIR log.' }
+  ];
+  var MINI = [
+    ['ecg', 322, 'Check signal and clean', 'Remove noise, fix length'],
+    ['ecg', 418, 'Model reads the ECG', 'Baseline, 1D CNN, ResNet'],
+    ['ecg', 514, 'ECG finding', 'With a confidence level'],
+    ['eco', 322, 'Check clip quality', 'Skip unusable views'],
+    ['eco', 418, 'Model reads the echo', 'Transfer learning'],
+    ['eco', 514, 'Echo finding', 'With a confidence level']
+  ];
+  var GOVLIST = ['NDA', 'No real patient data before written approval', 'Approved storage only', 'Clinician confirms every result', 'Patient-level splits', 'GDPR and ethics', 'FAIR log'];
+  var DELAY = { web: 0.1, chk: 0.2, ecg: 0.35, eco: 0.35, fus: 0.6, rul: 0.75, rev: 0.75, aud: 0.85, evl: 0.9, gvn: 1.0 };
+  var GLOW = { fus: 4.1, rul: 5.4, rev: 7.2, aud: 8.0 };
+
+  var L = [
+    ['M620 84V124', '', 0.3], ['M620 220V249H420V278', 'ecg', 0.5], ['M620 249H820V278', 'echo', 0.5],
+    ['M420 602V682', 'ecg', 0.7], ['M820 602V682', 'echo', 0.7],
+    ['M210 380H250', 'ecg dash', 0.5], ['M1030 380H990', 'echo dash', 0.5],
+    ['M440 782V842', 'fus', 0.9], ['M590 887H650', 'fus', 1.0], ['M910 732H1030', 'fus', 1.0],
+    ['M950 887H1030', 'fus', 1.1], ['M210 732H330', 'dash', 0.8], ['M105 842V794', 'dash', 0.9]
+  ];
+  var h = '<svg class="under" viewBox="0 0 1240 1102" aria-hidden="true"><defs>';
+  ['slate', 'ecg', 'echo', 'fusion'].forEach(function (c) {
+    h += '<marker id="ar-' + c + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9z" fill="var(--' + c + ')"/></marker>';
+  });
+  h += '</defs>';
+  L.forEach(function (l) {
+    var k = l[1].split(' ')[0];
+    var mk = k === 'ecg' ? 'ecg' : k === 'echo' ? 'echo' : k === 'fus' ? 'fusion' : 'slate';
+    h += '<path class="ln ' + l[1] + '" pathLength="1" d="' + l[0] + '" marker-end="url(#ar-' + mk + ')" style="--d:' + l[2] + 's"/>';
+  });
+  h += '</svg>';
+
+  /* side data cards */
+  h += '<div class="card" style="left:0;top:316px;--c:var(--ecg);--d:.4s"><span class="tag">ECG DATA</span><b>PTB-XL</b>Public ECG dataset used to train and test.</div>';
+  h += '<div class="card echoSide" style="left:1030px;top:316px;--c:var(--echo);--d:.4s"><span class="tag">ECHO DATA</span><b>EchoNet-Dynamic</b>Public echo dataset used to train and test.</div>';
+  h += '<div class="card" style="left:0;top:670px;height:124px;--c:var(--fusion);--d:.8s"><span class="tag">PAIRED TESTING</span><b>Both tests, same patient</b>MIMIC-IV-ECG with MIMIC-IV-Echo if access is approved, or client data after approval.</div>';
+
+  C.forEach(function (c) {
+    var style = 'left:' + c.x + 'px;top:' + c.y + 'px;width:' + c.w + 'px;height:' + c.h + 'px;--c:var(--' + c.col + ');--d:' + DELAY[c.id] + 's';
+    if (c.id === 'ecg') style += ';--tint:var(--ecg-tint)';
+    if (c.id === 'eco') style += ';--tint:var(--echo-tint)';
+    var cls = 'nd' + (c.id === 'ecg' || c.id === 'eco' ? ' panel' : '') + (c.id === 'eco' ? ' echoSide' : '') + (c.id === 'gvn' ? ' gov' : '');
+    if (GLOW[c.id]) { cls += ' glow'; style += ';--g:' + GLOW[c.id] + 's'; }
+    if (c.id === 'gvn') {
+      h += '<button type="button" class="' + cls + '" data-c="' + c.id + '" aria-pressed="false" style="' + style + ';--tint:var(--gov-tint)"><span class="num">' + c.n + '</span><span class="hd">' + ico(c.i) + '<span><b>' + c.t + '</b><small>Applies to every part</small></span></span><ul>' + GOVLIST.map(function (g) { return '<li>' + g + '</li>'; }).join('') + '</ul></button>';
+    } else if (c.id === 'ecg' || c.id === 'eco') {
+      h += '<button type="button" class="' + cls + '" data-c="' + c.id + '" aria-pressed="false" style="' + style + '"><span class="num">' + c.n + '</span><span class="hd">' + ico(c.i) + '<b>' + c.t + '</b></span></button>';
+    } else {
+      var extra = c.id === 'fus' ? '<span class="flag">' + ico('flag').replace('class="ico"', 'class="ico" style="width:14px;height:14px"') + 'Flagged for clinician review</span><span class="only">Answer from ECG only</span>' : c.id === 'rev' ? '<span class="flag">Review required</span>' : '';
+      h += '<button type="button" class="' + cls + '" data-c="' + c.id + '" aria-pressed="false" style="' + style + '"><span class="num">' + c.n + '</span>' + extra + '<span class="hd">' + ico(c.i) + '<span><b>' + c.t + '</b><small>' + c.s + '</small></span></span></button>';
+    }
+  });
+  MINI.forEach(function (m, k) {
+    var cc = C.filter(function (c) { return c.id === m[0]; })[0];
+    var side = m[0] === 'eco' ? ' echoSide' : '';
+    h += '<div class="mini' + side + '" style="left:' + (cc.x + 20) + 'px;top:' + m[1] + 'px;--c:var(--' + cc.col + ');--d:' + (0.5 + (k % 3) * 0.12) + 's"><b>' + m[2] + '</b><span>' + m[3] + '</span></div>';
+  });
+  h += '<i class="pk e" id="pE"></i><i class="pk o" id="pO"></i><i class="pk f" id="pF"></i><i class="pk f" id="pG"></i>';
+  var dia = document.getElementById('dia');
+  dia.innerHTML = h;
+
+  /* packets */
+  var anims = [];
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function travel(id, path, from, to) {
+    var el = document.getElementById(id);
+    el.style.offsetPath = "path('" + path + "')";
+    if (!el.animate) return;
+    var a = el.animate([
+      { offsetDistance: '0%', opacity: 0, offset: 0 },
+      { offsetDistance: '0%', opacity: 0, offset: from },
+      { offsetDistance: '8%', opacity: 1, offset: from + 0.02 },
+      { offsetDistance: '100%', opacity: 1, offset: to },
+      { offsetDistance: '100%', opacity: 0, offset: Math.min(1, to + 0.02) },
+      { offsetDistance: '100%', opacity: 0, offset: 1 }
+    ], { duration: 9000, iterations: Infinity, easing: 'ease-in-out' });
+    anims.push(a);
+  }
+  if (!reduce) {
+    travel('pE', 'M620 84V249H420V682', 0.02, 0.44);
+    travel('pO', 'M620 84V249H820V682', 0.02, 0.44);
+    travel('pF', 'M440 782V887H1030', 0.5, 0.88);
+    travel('pG', 'M910 732H1030', 0.5, 0.58);
+  }
+  var wrap = document.getElementById('wrap');
+  function fit() {
+    var s = Math.min(1, wrap.clientWidth / 1240);
+    dia.style.transform = 'scale(' + s + ')';
+    wrap.style.height = (1102 * s + 14) + 'px';
+  }
+  fit();
+  window.addEventListener('resize', fit);
+})();
+</script>
+
+</body></html>
